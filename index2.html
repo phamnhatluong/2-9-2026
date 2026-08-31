@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="UTF-8" />
@@ -146,7 +146,7 @@
   /* --- Chế độ điện thoại: ẩn tiêu đề/panel, camera phủ toàn màn hình --- */
   @media (max-width: 700px) {
     html, body { height: 100%; }
-    body { padding: 0; gap: 0; overflow: hidden; }
+    body { padding: 0; gap: 0; }
     h1, .subtitle, .panel { display: none; }
     .stage {
       max-width: none;
@@ -163,8 +163,8 @@
 </head>
 <body>
 
-  <h1>2/9 x Hand Tracking filter</h1>
-  <div class="subtitle">Pham Nhat Luong</div>
+  <h1>RETROLENS &mdash; Hand Tracking Filter &amp; Portal (Web)</h1>
+  <div class="subtitle">Chạy hoàn toàn trong trình duyệt bằng MediaPipe Tasks Vision (WASM) + Canvas API</div>
 
   <div class="stage">
     <video id="webcam" playsinline></video>
@@ -179,12 +179,14 @@
 
   <div class="panel">
     <div>
-      <h3>Bộ lọc hiện có</h3>
+      <h3>Bộ lọc hiện có (11 filter)</h3>
       <div class="filters-row" id="filterRow"></div>
     </div>
 
-    <div>
-      
+    <div class="instructions">
+      <b>Mở Portal:</b> đưa đầu ngón CÁI + ngón TRỎ của CẢ HAI tay vào khung hình (4 điểm) để tạo cổng tứ giác, bộ lọc đang chọn sẽ hiện bên trong.<br/>
+      <b>Đổi bộ lọc:</b> chạm ngón CÁI + ngón ÚT của một tay lại gần nhau, hoặc chạm 2 đầu ngón TRỎ của hai tay lại gần nhau. Cũng có thể bấm trực tiếp vào tên filter ở trên.<br/>
+      <b>Yêu cầu:</b> mở trang này qua <code>http://localhost</code> hoặc HTTPS để trình duyệt cho phép truy cập camera (mở trực tiếp bằng đường dẫn file có thể bị chặn camera).
     </div>
     <div class="status" id="statusText">Đang chờ tải mô hình MediaPipe...</div>
   </div>
@@ -192,14 +194,20 @@
 <script type="module">
 import {
   HandLandmarker,
+  ImageSegmenter,
   FilesetResolver,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 
 const MP_VERSION = "0.10.14";
 const HAND_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task";
+const SEG_MODEL_URL =
+  "https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite";
 
-const FILTERS = ["MONO", "GLITCH", "NEON", "VIETNAM", "PICTURE2", "PIC3", "PIC4", "PIC5"];
+const FILTERS = [
+  "MONO", "DUAL-TONE", "PIXELATE", "INVERT", "SEPIA",
+  "BLUR", "THERMAL", "SKETCH", "GLITCH", "NEON", "GALAXY",
+];
 let currentFilterIdx = 0;
 
 const TOUCH_DISTANCE_PX = 45;
@@ -215,33 +223,6 @@ const overlayText = document.getElementById("overlayText");
 const startBtn = document.getElementById("startBtn");
 const statusText = document.getElementById("statusText");
 const filterRow = document.getElementById("filterRow");
-
-// Ảnh do người dùng tải lên cho PICTURE2 / PIC3 / PIC4 / PIC5
-const userImages = { 2: null, 3: null, 4: null, 5: null };
-
-// --- Tự động tải ảnh từ thư mục r/ (cùng cấp với file HTML này) ---
-const PIC_FOLDER = "r";
-const PIC_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
-
-function autoLoadPicture(n) {
-  let extIdx = 0;
-  function tryNextExtension() {
-    if (extIdx >= PIC_EXTENSIONS.length) {
-      console.log(`Không tìm thấy ảnh tự động cho PIC${n} trong thư mục ${PIC_FOLDER}/`);
-      return;
-    }
-    const ext = PIC_EXTENSIONS[extIdx++];
-    const img = new Image();
-    img.onload = () => {
-      userImages[n] = img;
-      console.log(`Đã tự động tải ${PIC_FOLDER}/picture${n}.${ext}`);
-    };
-    img.onerror = tryNextExtension;
-    img.src = `${PIC_FOLDER}/picture${n}.${ext}`;
-  }
-  tryNextExtension();
-}
-[2, 3, 4, 5].forEach(autoLoadPicture);
 
 // --- Xây danh sách chip filter (bấm trực tiếp để chọn) ---
 function renderFilterChips() {
@@ -264,37 +245,51 @@ function setCurrentFilter(idx) {
   renderFilterChips();
 }
 
+// --- Nút nổi đổi filter (chỉ hiển thị trên màn hình điện thoại, xem CSS) ---
 const mobileFilterBtn = document.getElementById("mobileFilterBtn");
 mobileFilterBtn.addEventListener("click", () => {
   setCurrentFilter(currentFilterIdx + 1);
 });
 
 // ---------------------------------------------------------------------------
-// 1. Khởi tạo HandLandmarker (MediaPipe Tasks Vision)
+// 1. Khởi tạo HandLandmarker + ImageSegmenter (MediaPipe Tasks Vision)
 // ---------------------------------------------------------------------------
 let handLandmarker = null;
+let segmenter = null;
+let segmenterReady = false;
 
-async function initHandLandmarker() {
+async function initModels() {
   const vision = await FilesetResolver.forVisionTasks(
     `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MP_VERSION}/wasm`
   );
+
   handLandmarker = await HandLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath: HAND_MODEL_URL,
-      delegate: "GPU",
-    },
+    baseOptions: { modelAssetPath: HAND_MODEL_URL, delegate: "GPU" },
     runningMode: "VIDEO",
     numHands: 2,
     minHandDetectionConfidence: 0.6,
     minHandPresenceConfidence: 0.6,
     minTrackingConfidence: 0.6,
   });
+
+  try {
+    segmenter = await ImageSegmenter.createFromOptions(vision, {
+      baseOptions: { modelAssetPath: SEG_MODEL_URL, delegate: "GPU" },
+      runningMode: "VIDEO",
+      outputCategoryMask: true,
+    });
+    segmenterReady = true;
+  } catch (err) {
+    console.warn("Không khởi tạo được ImageSegmenter, filter GALAXY sẽ hiện ảnh gốc:", err);
+    segmenterReady = false;
+  }
+
   statusText.textContent = "Mô hình đã sẵn sàng. Nhấn 'Bắt đầu Camera' để chạy.";
   startBtn.disabled = false;
 }
 
 startBtn.disabled = true;
-initHandLandmarker().catch((err) => {
+initModels().catch((err) => {
   console.error(err);
   statusText.textContent =
     "Lỗi khi tải mô hình MediaPipe. Kiểm tra kết nối Internet rồi tải lại trang.";
@@ -303,6 +298,30 @@ initHandLandmarker().catch((err) => {
 // ---------------------------------------------------------------------------
 // 2. Bắt đầu Camera
 // ---------------------------------------------------------------------------
+let galaxyImageData = null;
+
+function buildGalaxyBackground(w, h) {
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const gctx = c.getContext("2d");
+  gctx.fillStyle = "rgb(30,10,40)";
+  gctx.fillRect(0, 0, w, h);
+  gctx.fillStyle = "#fff";
+  for (let i = 0; i < 500; i++) {
+    const x = Math.random() * w, y = Math.random() * h;
+    gctx.fillRect(x, y, 1, 1);
+  }
+  for (let i = 0; i < 80; i++) {
+    const x = Math.random() * w, y = Math.random() * h;
+    const r = 1 + Math.random() * 4;
+    gctx.fillStyle = `rgb(${150 + Math.random() * 105},${100 + Math.random() * 155},255)`;
+    gctx.beginPath();
+    gctx.arc(x, y, r, 0, Math.PI * 2);
+    gctx.fill();
+  }
+  return gctx.getImageData(0, 0, w, h);
+}
+
 startBtn.addEventListener("click", async () => {
   try {
     overlayText.textContent = "Đang mở camera...";
@@ -314,6 +333,7 @@ startBtn.addEventListener("click", async () => {
     await video.play();
     canvas.width = video.videoWidth || 960;
     canvas.height = video.videoHeight || 720;
+    galaxyImageData = buildGalaxyBackground(canvas.width, canvas.height);
     overlay.classList.add("hidden");
     requestAnimationFrame(renderLoop);
   } catch (err) {
@@ -335,22 +355,71 @@ function filterMono(imageData) {
   return imageData;
 }
 
+function filterInvert(imageData) {
+  const d = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    d[i] = 255 - d[i];
+    d[i + 1] = 255 - d[i + 1];
+    d[i + 2] = 255 - d[i + 2];
+  }
+  return imageData;
+}
+
+function filterSepia(imageData) {
+  const d = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    d[i]     = Math.min(255, 0.393 * r + 0.769 * g + 0.189 * b);
+    d[i + 1] = Math.min(255, 0.349 * r + 0.686 * g + 0.168 * b);
+    d[i + 2] = Math.min(255, 0.272 * r + 0.534 * g + 0.131 * b);
+  }
+  return imageData;
+}
+
+function filterDualTone(imageData) {
+  const d = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    if (gray > 127) {
+      d[i] = 255; d[i + 1] = 165; d[i + 2] = 0;   // cam
+    } else {
+      d[i] = 255; d[i + 1] = 20; d[i + 2] = 147;  // hồng
+    }
+  }
+  return imageData;
+}
+
+function jetColor(t) {
+  const r = Math.max(0, Math.min(1, 1.5 - Math.abs(4 * t - 3)));
+  const g = Math.max(0, Math.min(1, 1.5 - Math.abs(4 * t - 2)));
+  const b = Math.max(0, Math.min(1, 1.5 - Math.abs(4 * t - 1)));
+  return [r * 255, g * 255, b * 255];
+}
+
+function filterThermal(imageData) {
+  const d = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const gray = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) / 255;
+    const [r, g, b] = jetColor(gray);
+    d[i] = r; d[i + 1] = g; d[i + 2] = b;
+  }
+  return imageData;
+}
+
 function filterGlitch(imageData) {
   const { width, height, data } = imageData;
-  const src = new Uint8ClampedArray(data); // bản sao gốc để đọc, tránh ghi đè lẫn
+  const src = new Uint8ClampedArray(data);
   const shift = Math.max(5, Math.floor(width / 20));
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const di = (y * width + x) * 4;
-      // Kênh đỏ: lấy từ cột (x+shift) nếu còn trong ảnh
       if (x + shift < width) {
         const si = (y * width + (x + shift)) * 4;
-        data[di] = src[si]; // R
+        data[di] = src[si];
       }
-      // Kênh xanh dương: lấy từ cột (x-shift) nếu còn trong ảnh
       if (x - shift >= 0) {
         const si = (y * width + (x - shift)) * 4 + 2;
-        data[di + 2] = src[si]; // B
+        data[di + 2] = src[si];
       }
     }
   }
@@ -359,12 +428,10 @@ function filterGlitch(imageData) {
 
 function filterNeon(imageData) {
   const { width, height, data } = imageData;
-  // Bước 1: chuyển sang mảng xám
   const gray = new Float32Array(width * height);
   for (let i = 0, p = 0; i < data.length; i += 4, p++) {
     gray[p] = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
   }
-  // Bước 2: Sobel edge detection đơn giản
   const out = new Uint8ClampedArray(data.length);
   const gxKernel = [-1, 0, 1, -2, 0, 2, -1, 0, 1];
   const gyKernel = [-1, -2, -1, 0, 0, 0, 1, 2, 1];
@@ -383,10 +450,7 @@ function filterNeon(imageData) {
       const mag = Math.sqrt(gx * gx + gy * gy);
       const di = (y * width + x) * 4;
       if (mag > THRESHOLD) {
-        out[di] = 255;     // R
-        out[di + 1] = 255; // G
-        out[di + 2] = 0;   // B  -> màu vàng neon
-        out[di + 3] = 255;
+        out[di] = 255; out[di + 1] = 255; out[di + 2] = 0; out[di + 3] = 255;
       } else {
         out[di] = 0; out[di + 1] = 0; out[di + 2] = 0; out[di + 3] = 255;
       }
@@ -396,65 +460,78 @@ function filterNeon(imageData) {
   return imageData;
 }
 
-// --- Vẽ trực tiếp (không cần ảnh camera): cờ Việt Nam ---
-function drawVietnamFlag(destCtx, w, h) {
-  destCtx.fillStyle = "rgb(218,0,0)";
-  destCtx.fillRect(0, 0, w, h);
-
-  const cx = w / 2, cy = h / 2;
-  const outerR = 0.30 * Math.min(w, h);
-  const innerR = outerR * 0.382;
-  destCtx.fillStyle = "rgb(255,220,0)";
-  destCtx.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const angleDeg = -90 + i * 36;
-    const r = i % 2 === 0 ? outerR : innerR;
-    const rad = (angleDeg * Math.PI) / 180;
-    const x = cx + r * Math.cos(rad);
-    const y = cy + r * Math.sin(rad);
-    if (i === 0) destCtx.moveTo(x, y); else destCtx.lineTo(x, y);
+function filterGalaxy(imageData, bx, by, bw, bh, mirroredMask) {
+  if (!mirroredMask || !galaxyImageData) return imageData;
+  const d = imageData.data;
+  const gW = canvas.width;
+  const gData = galaxyImageData.data;
+  for (let y = 0; y < bh; y++) {
+    for (let x = 0; x < bw; x++) {
+      const gx = bx + x, gy = by + y;
+      const maskVal = mirroredMask[gy * gW + gx];
+      if (maskVal === 0) { // nền (không phải người)
+        const di = (y * bw + x) * 4;
+        const gi = (gy * gW + gx) * 4;
+        d[di] = gData[gi]; d[di + 1] = gData[gi + 1]; d[di + 2] = gData[gi + 2];
+      }
+    }
   }
-  destCtx.closePath();
-  destCtx.fill();
+  return imageData;
 }
 
-// --- Vẽ ảnh do người dùng tải lên (PICTURE2 / PIC3 / PIC4 / PIC5) ---
-function drawUserPicture(destCtx, w, h, picNumber) {
-  const img = userImages[picNumber];
-  if (img) {
-    destCtx.drawImage(img, 0, 0, w, h);
-  } else {
-    destCtx.fillStyle = "rgb(60,60,60)";
-    destCtx.fillRect(0, 0, w, h);
-    destCtx.fillStyle = "#fff";
-    destCtx.font = `${Math.max(12, Math.min(w, h) / 20)}px sans-serif`;
-    destCtx.textAlign = "center";
-    destCtx.fillText(`Tải ảnh cho PIC${picNumber}`, w / 2, h / 2 - 6);
-    destCtx.fillText("ở panel bên dưới", w / 2, h / 2 + 18);
-  }
+function pixelateCanvas(tctx, bw, bh) {
+  const sw = Math.max(1, Math.floor(bw / 10));
+  const sh = Math.max(1, Math.floor(bh / 10));
+  const small = document.createElement("canvas");
+  small.width = sw; small.height = sh;
+  const sctx = small.getContext("2d");
+  sctx.drawImage(tctx.canvas, 0, 0, bw, bh, 0, 0, sw, sh);
+  tctx.imageSmoothingEnabled = false;
+  tctx.clearRect(0, 0, bw, bh);
+  tctx.drawImage(small, 0, 0, sw, sh, 0, 0, bw, bh);
 }
 
 // ---------------------------------------------------------------------------
 // 4. Áp dụng filter cho vùng bounding-box (bw x bh), trả về canvas kết quả
 // ---------------------------------------------------------------------------
-function buildFilteredRegion(filterName, bx, by, bw, bh) {
+function buildFilteredRegion(filterName, bx, by, bw, bh, mirroredMask) {
   const tmp = document.createElement("canvas");
-  tmp.width = bw;
-  tmp.height = bh;
-  const tctx = tmp.getContext("2d");
+  tmp.width = bw; tmp.height = bh;
+  const tctx = tmp.getContext("2d", { willReadFrequently: true });
 
-  if (filterName === "VIETNAM") {
-    drawVietnamFlag(tctx, bw, bh);
-  } else if (filterName.startsWith("PIC")) {
-    const num = filterName === "PICTURE2" ? 2 : parseInt(filterName.replace("PIC", ""), 10);
-    drawUserPicture(tctx, bw, bh, num);
+  if (filterName === "BLUR") {
+    tctx.filter = "blur(8px)";
+    tctx.drawImage(canvas, bx, by, bw, bh, 0, 0, bw, bh);
+    tctx.filter = "none";
+  } else if (filterName === "PIXELATE") {
+    tctx.drawImage(canvas, bx, by, bw, bh, 0, 0, bw, bh);
+    pixelateCanvas(tctx, bw, bh);
+  } else if (filterName === "SKETCH") {
+    tctx.filter = "grayscale(1)";
+    tctx.drawImage(canvas, bx, by, bw, bh, 0, 0, bw, bh);
+    tctx.filter = "none";
+
+    const blurCanvas = document.createElement("canvas");
+    blurCanvas.width = bw; blurCanvas.height = bh;
+    const bctx = blurCanvas.getContext("2d");
+    bctx.filter = "grayscale(1) invert(1) blur(6px)";
+    bctx.drawImage(canvas, bx, by, bw, bh, 0, 0, bw, bh);
+    bctx.filter = "none";
+
+    tctx.globalCompositeOperation = "color-dodge";
+    tctx.drawImage(blurCanvas, 0, 0);
+    tctx.globalCompositeOperation = "source-over";
   } else {
-    // MONO / GLITCH / NEON: lấy pixel từ khung hình camera hiện tại (đã lật gương)
     tctx.drawImage(canvas, bx, by, bw, bh, 0, 0, bw, bh);
     let imageData = tctx.getImageData(0, 0, bw, bh);
     if (filterName === "MONO") imageData = filterMono(imageData);
+    else if (filterName === "INVERT") imageData = filterInvert(imageData);
+    else if (filterName === "SEPIA") imageData = filterSepia(imageData);
+    else if (filterName === "DUAL-TONE") imageData = filterDualTone(imageData);
+    else if (filterName === "THERMAL") imageData = filterThermal(imageData);
     else if (filterName === "GLITCH") imageData = filterGlitch(imageData);
     else if (filterName === "NEON") imageData = filterNeon(imageData);
+    else if (filterName === "GALAXY") imageData = filterGalaxy(imageData, bx, by, bw, bh, mirroredMask);
     tctx.putImageData(imageData, 0, 0);
   }
   return tmp;
@@ -483,18 +560,33 @@ function renderLoop() {
 
   const nowMs = performance.now();
   const result = handLandmarker.detectForVideo(video, nowMs);
-
   const filterName = FILTERS[currentFilterIdx];
+
+  // Chỉ chạy segmenter khi thực sự cần (filter GALAXY) để tiết kiệm CPU/GPU
+  let mirroredMask = null;
+  if (filterName === "GALAXY" && segmenterReady) {
+    const segResult = segmenter.segmentForVideo(video, nowMs);
+    if (segResult.categoryMask) {
+      const mask = segResult.categoryMask.getAsUint8Array();
+      // Mask ứng với khung hình GỐC (chưa lật); cần lật lại theo trục X
+      // để khớp với canvas đã hiển thị lật gương.
+      mirroredMask = new Uint8Array(mask.length);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          mirroredMask[y * w + x] = mask[y * w + (w - 1 - x)];
+        }
+      }
+      segResult.categoryMask.close();
+    }
+  }
+
   const portalPoints = [];
   let wantSwitch = false;
 
   if (result.landmarks && result.landmarks.length > 0) {
     const handsLm = result.landmarks;
-
-    // Tọa độ đã lật gương: x' = (1 - lm.x) * w ; y' = lm.y * h
     const toPixel = (lm) => [Math.round((1 - lm.x) * w), Math.round(lm.y * h)];
 
-    // Cử chỉ: 2 đầu ngón trỏ chạm nhau
     if (handsLm.length >= 2) {
       const a = toPixel(handsLm[0][8]);
       const b = toPixel(handsLm[1][8]);
@@ -542,12 +634,10 @@ function renderLoop() {
       let bh = Math.min(h, Math.max(...ys)) - by;
 
       if (bw > 4 && bh > 4) {
-        const filteredCanvas = buildFilteredRegion(FILTERS[currentFilterIdx], bx, by, bw, bh);
+        const filteredCanvas = buildFilteredRegion(filterName, bx, by, bw, bh, mirroredMask);
 
-        // Mask theo hình tứ giác (poly) để cắt đúng hình dạng portal
         const maskCanvas = document.createElement("canvas");
-        maskCanvas.width = bw;
-        maskCanvas.height = bh;
+        maskCanvas.width = bw; maskCanvas.height = bh;
         const mctx = maskCanvas.getContext("2d");
         mctx.fillStyle = "#fff";
         mctx.beginPath();
@@ -565,7 +655,6 @@ function renderLoop() {
 
         ctx.drawImage(filteredCanvas, bx, by);
 
-        // Viền portal
         ctx.strokeStyle = "rgba(255,255,255,0.9)";
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -575,7 +664,6 @@ function renderLoop() {
         ctx.closePath();
         ctx.stroke();
 
-        // Hạt sáng viền portal
         ctx.fillStyle = "rgba(0,255,255,0.9)";
         for (let i = 0; i < 4; i++) {
           const p1 = poly[i], p2 = poly[(i + 1) % 4];
@@ -594,7 +682,6 @@ function renderLoop() {
     switchArmed = true;
   }
 
-  // HUD
   ctx.font = "16px sans-serif";
   ctx.fillStyle = "rgba(0,0,0,0.55)";
   ctx.fillRect(0, 0, w, 46);
