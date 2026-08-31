@@ -1,0 +1,8 @@
+Đặt các file ảnh của bạn vào đây với đúng tên sau (chỉ cần 1 trong các đuôi .jpg/.jpeg/.png/.webp):
+
+  picture2.jpg  -> dùng cho filter PICTURE2
+  picture3.jpg  -> dùng cho filter PIC3
+  picture4.jpg  -> dùng cho filter PIC4
+  picture5.jpg  -> dùng cho filter PIC5
+
+Sau khi đặt ảnh đúng tên, xóa file .txt này đi (không bắt buộc, chỉ để dọn dẹp).
