@@ -338,11 +338,51 @@ async function initHandLandmarker() {
 }
 
 startBtn.disabled = true;
-initHandLandmarker().catch((err) => {
-  console.error(err);
-  statusText.textContent =
-    "Lỗi khi tải mô hình MediaPipe. Kiểm tra kết nối Internet rồi tải lại trang.";
-});
+
+async function startCamera() {
+  if (video.srcObject) return;
+
+  try {
+    overlayText.textContent = "Đang mở camera...";
+
+    const screenW = window.innerWidth || 960;
+    const screenH = window.innerHeight || 720;
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user",
+        width: { ideal: screenW },
+        height: { ideal: screenH },
+      },
+      audio: false,
+    });
+
+    video.srcObject = stream;
+    await video.play();
+    canvas.width = video.videoWidth || screenW;
+    canvas.height = video.videoHeight || screenH;
+    overlay.classList.add("hidden");
+    await startRecordingFromStream(stream);
+    requestAnimationFrame(renderLoop);
+    statusText.textContent = "Camera đang chạy. Preview live đang hiển thị...";
+  } catch (err) {
+    console.error(err);
+    overlayText.textContent =
+      "Không thể truy cập camera. Hãy cho phép quyền camera, và đảm bảo trang đang mở qua http://localhost hoặc HTTPS.";
+  }
+}
+
+initHandLandmarker()
+  .then(() => {
+    statusText.textContent = "Mô hình đã sẵn sàng. Camera đang khởi động...";
+    startBtn.disabled = false;
+    startCamera();
+  })
+  .catch((err) => {
+    console.error(err);
+    statusText.textContent =
+      "Lỗi khi tải mô hình MediaPipe. Kiểm tra kết nối Internet rồi tải lại trang.";
+  });
 
 // ---------------------------------------------------------------------------
 // 2. Bắt đầu Camera
@@ -482,34 +522,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 startBtn.addEventListener("click", async () => {
-  try {
-    overlayText.textContent = "Đang mở camera...";
-
-    // Xin camera với độ phân giải khớp tỉ lệ MÀN HÌNH THỰC TẾ của thiết bị
-    // (điện thoại dọc sẽ xin video dọc, tránh bị kéo méo khi hiển thị full màn hình).
-    const screenW = window.innerWidth || 960;
-    const screenH = window.innerHeight || 720;
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: "user",
-        width: { ideal: screenW },
-        height: { ideal: screenH },
-      },
-      audio: false,
-    });
-    video.srcObject = stream;
-    await video.play();
-    canvas.width = video.videoWidth || screenW;
-    canvas.height = video.videoHeight || screenH;
-    overlay.classList.add("hidden");
-    await startRecordingFromStream(stream);
-    requestAnimationFrame(renderLoop);
-  } catch (err) {
-    console.error(err);
-    overlayText.textContent =
-      "Không thể truy cập camera. Hãy cho phép quyền camera, và đảm bảo trang đang mở qua http://localhost hoặc HTTPS.";
-  }
+  await startCamera();
 });
 
 // ---------------------------------------------------------------------------
