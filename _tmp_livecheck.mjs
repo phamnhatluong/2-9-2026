@@ -1,198 +1,4 @@
-﻿<!DOCTYPE html>
-<html lang="vi">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<title>Retrolens - Hand Tracking Filter &amp; Portal (Web)</title>
-<style>
-  :root {
-    --bg: #0b0b12;
-    --panel: #15151f;
-    --accent: #00e5ff;
-    --accent2: #ffe600;
-    --text: #e8e8f0;
-    --muted: #8a8aa0;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: "Segoe UI", Roboto, Arial, sans-serif;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 20px;
-    gap: 16px;
-  }
-  h1 {
-    margin: 0;
-    font-size: 22px;
-    letter-spacing: 1px;
-    color: var(--accent);
-    text-shadow: 0 0 12px rgba(0, 229, 255, 0.5);
-  }
-  .subtitle { color: var(--muted); font-size: 13px; margin-top: -10px; text-align: center; }
 
-  .stage {
-    position: relative;
-    width: 100%;
-    max-width: 960px;
-    aspect-ratio: 4 / 3;
-    background: #000;
-    border-radius: 12px;
-    overflow: hidden;
-    border: 1px solid #262636;
-    box-shadow: 0 0 40px rgba(0, 229, 255, 0.08);
-  }
-  video { display: none; }
-  canvas#outputCanvas {
-    width: 100%;
-    height: 100%;
-    display: block;
-    object-fit: cover;
-  }
-  .overlay-msg {
-    position: absolute;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: column;
-    gap: 12px;
-    background: rgba(0,0,0,0.55);
-    text-align: center;
-    padding: 20px;
-  }
-  .hidden { display: none !important; }
-
-  button {
-    background: linear-gradient(135deg, var(--accent), #007a8a);
-    border: none;
-    color: #001318;
-    font-weight: 700;
-    padding: 10px 22px;
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 14px;
-    letter-spacing: 0.5px;
-  }
-  button:hover { filter: brightness(1.1); }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .panel {
-    width: 100%;
-    max-width: 960px;
-    background: var(--panel);
-    border: 1px solid #262636;
-    border-radius: 12px;
-    padding: 16px 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-  .panel h3 { margin: 0 0 4px 0; font-size: 14px; color: var(--accent2); }
-  .filters-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-  .filter-chip {
-    padding: 6px 14px;
-    border-radius: 999px;
-    background: #1f1f2e;
-    border: 1px solid #33334a;
-    color: var(--muted);
-    font-size: 13px;
-    cursor: pointer;
-    user-select: none;
-  }
-  .filter-chip.active {
-    background: var(--accent2);
-    color: #1a1500;
-    border-color: var(--accent2);
-    font-weight: 700;
-  }
-  .instructions {
-    font-size: 12.5px;
-    color: var(--muted);
-    line-height: 1.6;
-  }
-  .instructions b { color: var(--text); }
-  .status {
-    font-size: 12.5px;
-    color: var(--accent);
-  }
-
-  /* --- Nút nổi đổi filter, chỉ hiện trên màn hình điện thoại --- */
-  .mobile-filter-btn {
-    display: none;
-    position: fixed;
-    bottom: 22px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 50;
-    padding: 14px 30px;
-    border-radius: 999px;
-    background: var(--accent2);
-    color: #1a1500;
-    font-weight: 800;
-    font-size: 15px;
-    letter-spacing: 0.3px;
-    border: none;
-    box-shadow: 0 6px 24px rgba(0,0,0,0.5);
-  }
-  .mobile-filter-btn:active { transform: translateX(-50%) scale(0.96); }
-
-  /* --- Chế độ điện thoại: ẩn tiêu đề/panel, camera phủ toàn màn hình --- */
-  @media (max-width: 700px) {
-    html, body { height: 100%; }
-    body { padding: 0; gap: 0; }
-    h1, .subtitle, .panel { display: none; }
-    .stage {
-      max-width: none;
-      width: 100vw;
-      height: 100vh;
-      aspect-ratio: unset;
-      border-radius: 0;
-      border: none;
-      box-shadow: none;
-    }
-    .mobile-filter-btn { display: block; }
-  }
-</style>
-</head>
-<body>
-
-  <h1>RETROLENS &mdash; Hand Tracking Filter &amp; Portal (Web)</h1>
-  <div class="subtitle">Chạy hoàn toàn trong trình duyệt bằng MediaPipe Tasks Vision (WASM) + Canvas API</div>
-
-  <div class="stage">
-    <video id="webcam" playsinline></video>
-    <canvas id="outputCanvas" width="960" height="720"></canvas>
-    <div id="overlay" class="overlay-msg">
-      <div id="overlayText">Nhấn nút bên dưới để bắt đầu camera</div>
-      <button id="startBtn">Bắt đầu Camera</button>
-    </div>
-  </div>
-
-  <button id="mobileFilterBtn" class="mobile-filter-btn" type="button">⟳ Đổi Filter</button>
-
-  <div class="panel">
-    <div>
-      <h3>Bộ lọc hiện có</h3>
-      <div class="filters-row" id="filterRow"></div>
-    </div>
-
-  
-    <div class="instructions">
-      <b>Mở Portal:</b> đưa đầu ngón CÁI + ngón TRỎ của CẢ HAI tay vào khung hình (4 điểm) để tạo cổng tứ giác, bộ lọc đang chọn sẽ hiện bên trong.<br/>
-      <b>Đổi bộ lọc:</b> chạm ngón CÁI + ngón ÚT của một tay lại gần nhau, hoặc chạm 2 đầu ngón TRỎ của hai tay lại gần nhau. Cũng có thể bấm trực tiếp vào tên filter ở trên. Trên điện thoại, dùng nút nổi "⟳ Đổi Filter".<br/>
-        </div>
-    <div class="status" id="statusText">Đang chờ tải mô hình MediaPipe...</div>
-  </div>
-
-<script type="module">
 import {
   HandLandmarker,
   FilesetResolver,
@@ -325,11 +131,51 @@ async function initHandLandmarker() {
 }
 
 startBtn.disabled = true;
-initHandLandmarker().catch((err) => {
-  console.error(err);
-  statusText.textContent =
-    "Lỗi khi tải mô hình MediaPipe. Kiểm tra kết nối Internet rồi tải lại trang.";
-});
+
+async function startCamera() {
+  if (video.srcObject) return;
+
+  try {
+    overlayText.textContent = "Đang mở camera...";
+
+    const screenW = window.innerWidth || 960;
+    const screenH = window.innerHeight || 720;
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user",
+        width: { ideal: screenW },
+        height: { ideal: screenH },
+      },
+      audio: false,
+    });
+
+    video.srcObject = stream;
+    await video.play();
+    canvas.width = video.videoWidth || screenW;
+    canvas.height = video.videoHeight || screenH;
+    overlay.classList.add("hidden");
+    await startRecordingFromStream(stream);
+    requestAnimationFrame(renderLoop);
+    statusText.textContent = "Camera đang chạy. Preview live đang hiển thị...";
+  } catch (err) {
+    console.error(err);
+    overlayText.textContent =
+      "Không thể truy cập camera. Hãy cho phép quyền camera, và đảm bảo trang đang mở qua http://localhost hoặc HTTPS.";
+  }
+}
+
+initHandLandmarker()
+  .then(() => {
+    statusText.textContent = "Mô hình đã sẵn sàng. Camera đang khởi động...";
+    startBtn.disabled = false;
+    startCamera();
+  })
+  .catch((err) => {
+    console.error(err);
+    statusText.textContent =
+      "Lỗi khi tải mô hình MediaPipe. Kiểm tra kết nối Internet rồi tải lại trang.";
+  });
 
 // ---------------------------------------------------------------------------
 // 2. Bắt đầu Camera
@@ -350,11 +196,8 @@ async function startRecordingFromStream(stream) {
 
   const mimeType = getSupportedMimeType();
   const options = mimeType ? { mimeType } : {};
-  const canvasStream = canvas.captureStream ? canvas.captureStream(30) : null;
-  const captureSource = canvasStream || stream;
-
   recordedChunks = [];
-  mediaRecorder = new MediaRecorder(captureSource, options);
+  mediaRecorder = new MediaRecorder(stream, options);
 
   mediaRecorder.ondataavailable = (event) => {
     if (event.data && event.data.size > 0) {
@@ -472,34 +315,7 @@ document.addEventListener("visibilitychange", () => {
 });
 
 startBtn.addEventListener("click", async () => {
-  try {
-    overlayText.textContent = "Đang mở camera...";
-
-    // Xin camera với độ phân giải khớp tỉ lệ MÀN HÌNH THỰC TẾ của thiết bị
-    // (điện thoại dọc sẽ xin video dọc, tránh bị kéo méo khi hiển thị full màn hình).
-    const screenW = window.innerWidth || 960;
-    const screenH = window.innerHeight || 720;
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: "user",
-        width: { ideal: screenW },
-        height: { ideal: screenH },
-      },
-      audio: false,
-    });
-    video.srcObject = stream;
-    await video.play();
-    canvas.width = video.videoWidth || screenW;
-    canvas.height = video.videoHeight || screenH;
-    overlay.classList.add("hidden");
-    await startRecordingFromStream(stream);
-    requestAnimationFrame(renderLoop);
-  } catch (err) {
-    console.error(err);
-    overlayText.textContent =
-      "Không thể truy cập camera. Hãy cho phép quyền camera, và đảm bảo trang đang mở qua http://localhost hoặc HTTPS.";
-  }
+  await startCamera();
 });
 
 // ---------------------------------------------------------------------------
@@ -765,6 +581,3 @@ function renderLoop() {
 
   requestAnimationFrame(renderLoop);
 }
-</script>
-</body>
-</html>
