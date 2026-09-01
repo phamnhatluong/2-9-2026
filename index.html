@@ -157,7 +157,7 @@
   }
   .mobile-filter-btn:active { transform: translateX(-50%) scale(0.96); }
 
-  /* --- Chế độ điện thoại: camera preview riêng biệt --- */
+  /* --- Chế độ điện thoại: camera nhỏ gọn, fit toàn bộ trên 1 màn hình --- */
   @media (max-width: 700px) {
     html, body {
       height: 100vh;
@@ -165,28 +165,30 @@
       overflow: hidden;
     }
     body {
-      padding: 0;
-      gap: 0;
+      padding: 16px;
+      gap: 8px;
+      overflow: hidden;
+      background: #000;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: flex-start;
-      background: #000;
+      justify-content: center;
       height: 100vh;
+      margin: 0;
     }
     h1, .subtitle, .panel { display: none; }
     .stage {
       position: relative;
-      max-width: none;
       width: 100%;
-      flex: 1;
-      aspect-ratio: auto;
-      border-radius: 0;
-      border: none;
+      height: auto;
+      max-width: calc(100vw - 32px);
+      aspect-ratio: 4 / 3;
+      border-radius: 8px;
+      border: 1px solid #262636;
       box-shadow: none;
       background: #000;
-      margin: 0;
-      padding: 0;
+      overflow: hidden;
+      flex-shrink: 0;
     }
     canvas#outputCanvas {
       width: 100%;
@@ -194,7 +196,14 @@
       object-fit: cover;
       display: block;
     }
-    .mobile-filter-btn { display: block; }
+    .mobile-filter-btn { 
+      display: block;
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 50;
+    }
   }
 </style>
 </head>
