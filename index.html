@@ -14,6 +14,13 @@
     --muted: #8a8aa0;
   }
   * { box-sizing: border-box; }
+  html, body {
+    height: 100vh;
+    width: 100vw;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
   body {
     margin: 0;
     background: var(--bg);
@@ -22,8 +29,10 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 20px;
-    gap: 16px;
+    padding: 0;
+    gap: 0;
+    height: 100vh;
+    overflow: hidden;
   }
   h1 {
     margin: 0;
@@ -35,15 +44,19 @@
   .subtitle { color: var(--muted); font-size: 13px; margin-top: -10px; text-align: center; }
 
   .stage {
-    position: relative;
-    width: 100%;
-    max-width: 960px;
-    aspect-ratio: 4 / 3;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    aspect-ratio: unset;
     background: #000;
-    border-radius: 12px;
+    border-radius: 0;
     overflow: hidden;
-    border: 1px solid #262636;
-    box-shadow: 0 0 40px rgba(0, 229, 255, 0.08);
+    border: none;
+    box-shadow: none;
+    margin: 0;
+    padding: 0;
   }
   video { display: none; }
   canvas#outputCanvas {
@@ -144,16 +157,18 @@
   }
   .mobile-filter-btn:active { transform: translateX(-50%) scale(0.96); }
 
-  /* --- Chế độ điện thoại: camera nhỏ gọn, fit toàn bộ trên 1 màn hình --- */
+  /* --- Chế độ toàn bộ: camera lấp đầy toàn màn hình trên mọi thiết bị --- */
   @media (max-width: 700px) {
     html, body {
       height: 100vh;
       width: 100vw;
       overflow: hidden;
+      margin: 0;
+      padding: 0;
     }
     body {
-      padding: 16px;
-      gap: 8px;
+      padding: 0;
+      gap: 0;
       overflow: hidden;
       background: #000;
       display: flex;
@@ -165,17 +180,18 @@
     }
     h1, .subtitle, .panel { display: none; }
     .stage {
-      position: relative;
-      width: 100%;
-      height: auto;
-      max-width: calc(100vw - 32px);
-      aspect-ratio: 4 / 3;
-      border-radius: 8px;
-      border: 1px solid #262636;
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      max-width: none;
+      aspect-ratio: unset;
+      border-radius: 0;
+      border: none;
       box-shadow: none;
       background: #000;
-      overflow: hidden;
-      flex-shrink: 0;
+      margin: 0;
+      padding: 0;
     }
     canvas#outputCanvas {
       width: 100%;
@@ -186,7 +202,7 @@
     .mobile-filter-btn { 
       display: block;
       position: fixed;
-      bottom: 16px;
+      bottom: 20px;
       left: 50%;
       transform: translateX(-50%);
       z-index: 50;
