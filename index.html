@@ -659,10 +659,17 @@ function renderLoop() {
   }
 
   const w = canvas.width, h = canvas.height;
+  const sourceW = video.videoWidth || w;
+  const sourceH = video.videoHeight || h;
+  const zoomOut = 0.78;
+  const cropW = sourceW * zoomOut;
+  const cropH = sourceH * zoomOut;
+  const cropX = (sourceW - cropW) / 2;
+  const cropY = (sourceH - cropH) / 2;
 
   ctx.save();
   ctx.scale(-1, 1);
-  ctx.drawImage(video, -w, 0, w, h);
+  ctx.drawImage(video, cropX, cropY, cropW, cropH, -w, 0, w, h);
   ctx.restore();
 
   const nowMs = performance.now();
