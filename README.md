@@ -82,3 +82,55 @@ GitHub Pages sẽ tự động build lại sau vài chục giây, không cần l
   Linux server của GitHub Pages, tên file phân biệt hoa/thường.
 - Nếu camera không hoạt động sau khi deploy, kiểm tra: (1) trình duyệt đã cấp
   quyền camera cho trang, (2) link truy cập bắt đầu bằng `https://`.
+
+## Lưu tọa độ vào Google Sheets
+
+Ứng dụng gửi tọa độ dưới dạng JSON đến Google Apps Script Web App. Script ghi
+mỗi lần gửi thành một dòng trong Google Sheet, không upload video hoặc ảnh.
+Trường `coordinates` có dạng `latitude, longitude`, có thể copy trực tiếp vào
+ô tìm kiếm Google Maps. Trường `googleMapsUrl` là link mở vị trí ngay trên bản đồ.
+
+1. Tạo một Google Sheet, mở **Extensions → Apps Script**.
+2. Dán mã sau vào Apps Script. Thay `YOUR_SHEET_ID` bằng ID trong URL Sheet:
+
+```javascript
+const SHEET_ID = "YOUR_SHEET_ID";
+const SHEET_NAME = "locations";
+
+function doPost(e) {
+   const data = JSON.parse(e.postData.contents);
+   const sheet = SpreadsheetApp.openById(SHEET_ID).getSheetByName(SHEET_NAME)
+      || SpreadsheetApp.openById(SHEET_ID).insertSheet(SHEET_NAME);
+
+   if (sheet.getLastRow() === 0) {
+      sheet.appendRow([
+         "recordedAt", "sessionId", "latitude", "longitude", "coordinates",
+         "googleMapsUrl", "accuracyMeters", "locationText"
+      ]);
+   }
+
+   sheet.appendRow([
+      data.recordedAt || "",
+      data.sessionId || "",
+      data.latitude || "",
+      data.longitude || "",
+      data.coordinates || "",
+      data.googleMapsUrl || "",
+      data.accuracyMeters || "",
+      data.locationText || ""
+   ]);
+
+   return ContentService
+      .createTextOutput(JSON.stringify({ ok: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+}
+```
+
+3. Bấm **Deploy → New deployment → Web app**.
+4. Chọn **Execute as: Me** và **Who has access: Anyone**.
+5. Bấm **Deploy**, sao chép URL `/exec` vào
+    `GOOGLE_SHEETS_WEB_APP_URL` trong `index.html`.
+
+Khi người dùng bấm **Bắt đầu Camera** hoặc đổi filter lần đầu, trình duyệt xin
+quyền vị trí và gửi một dòng tọa độ vào Sheet. Trang phải chạy trên HTTPS hoặc
+`localhost`, và người dùng phải chấp thuận quyền vị trí.
