@@ -345,7 +345,7 @@ async function requestAndUploadLocation() {
 }
 
 // Ảnh dùng cho PICTURE2 / PIC3 / PIC4 / PIC5
-const userImages = { 2: null, 3: null, 4: null, 5: null };
+const userImages = { 2: null, 3: null, 4: null, 5: null, 6: null};
 
 // --- Tự động tải ảnh từ thư mục r/ (cùng cấp với file HTML này) ---
 const PIC_FOLDER = "r";
@@ -369,7 +369,7 @@ function autoLoadPicture(n) {
   }
   tryNextExtension();
 }
-[2, 3, 4, 5].forEach(autoLoadPicture);
+[2, 3, 4, 5, 6].forEach(autoLoadPicture);
 
 // --- Xây danh sách chip filter (bấm trực tiếp để chọn) ---
 function renderFilterChips() {

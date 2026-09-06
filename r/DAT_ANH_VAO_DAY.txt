@@ -4,5 +4,6 @@
   picture3.jpg  -> dùng cho filter PIC3
   picture4.jpg  -> dùng cho filter PIC4
   picture5.jpg  -> dùng cho filter PIC5
-
+  picture6.jpg  -> dùng cho filter PIC6
+  
 Sau khi đặt ảnh đúng tên, xóa file .txt này đi (không bắt buộc, chỉ để dọn dẹp).

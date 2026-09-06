@@ -9,15 +9,16 @@ host file tĩnh — GitHub Pages phù hợp 100%.
 ```
 retrolens_deploy/
 ├── index.html          <- file chính, PHẢI tên là index.html
-└── r/                  <- thư mục chứa ảnh cho filter PICTURE2/PIC3/PIC4/PIC5
+└── r/                  <- thư mục chứa ảnh cho filter PICTURE2/PIC3/PIC4/PIC5/PIC6
     ├── picture2.jpg
     ├── picture3.jpg
     ├── picture4.jpg
-    └── picture5.jpg
+   ├── picture5.jpg
+   └── picture6.jpg
 ```
 
 Bạn đã có sẵn ảnh trong thư mục `r/` — chỉ cần đảm bảo tên file đúng định dạng
-`picture2.jpg`, `picture3.jpg`, `picture4.jpg`, `picture5.jpg` (hỗ trợ cả
+`picture2.jpg`, `picture3.jpg`, `picture4.jpg`, `picture5.jpg`, `picture6.jpg` (hỗ trợ cả
 `.jpeg`, `.png`, `.webp`) là web sẽ tự nhận, không cần sửa code.
 
 ## Các bước Deploy lên GitHub Pages
